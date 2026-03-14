@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# ML models — too large for GitHub
+gateway/edgesentinel_autoencoder.h5
+gateway/edgesentinel_scaler.pkl
+
+# Certificates and keys — never commit these
+certs/ca.key
+certs/*.key
+certs/*_wg.key
+certs/gateway.key
+
+# Forensic chain data
+forensics/chain.json
+
+# Logs
+*.log
