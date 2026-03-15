@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from datetime import datetime
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import subprocess
@@ -123,7 +124,25 @@ def delete_peer(device_id):
 
     socketio.emit('device_update', re.get_all_devices())
     return jsonify({"status": "peer deleted", "device_id": device_id})
+# ── Sensor Data ──────────────────────────────────────────────────
+sensor_data = {
+    "pizero": {"temperature": None, "humidity": None, "last_updated": None},
+    "esp32_1": {"temperature": None, "humidity": None, "last_updated": None}
+}
 
+@app.route('/api/sensors', methods=['GET'])
+def get_sensors():
+    return jsonify(sensor_data)
+
+@app.route('/api/sensors/<device_id>', methods=['POST'])
+def update_sensor(device_id):
+    data = request.json
+    if device_id in sensor_data:
+        sensor_data[device_id]['temperature'] = data.get('temperature')
+        sensor_data[device_id]['humidity'] = data.get('humidity')
+        sensor_data[device_id]['last_updated'] = datetime.now().isoformat()
+        socketio.emit('sensor_update', sensor_data)
+    return jsonify({"status": "updated"})
 # ── Dashboard SocketIO ───────────────────────────────────────────
 @app.route('/api/reset', methods=['POST'])
 def reset_all():
