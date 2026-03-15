@@ -14,7 +14,7 @@ import forensic_chain as fc
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'edgesentinel_secret'
-CORS(app)
+
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ── Device Registration ──────────────────────────────────────────
@@ -125,6 +125,20 @@ def delete_peer(device_id):
     return jsonify({"status": "peer deleted", "device_id": device_id})
 
 # ── Dashboard SocketIO ───────────────────────────────────────────
+@app.route('/api/reset', methods=['POST'])
+def reset_all():
+    re.devices.clear()
+    re.register_device('pizero', has_hsm=False)
+    re.register_device('esp32_1', has_hsm=True)
+    re.register_device('esp32_rogue', has_hsm=False)
+
+    import json
+    with open('/home/owner/edgesentinel/forensics/chain.json', 'w') as f:
+        json.dump([], f)
+
+    socketio.emit('device_update', re.get_all_devices())
+    print("[RESET] All devices and forensic chain reset.")
+    return jsonify({"status": "reset complete"})
 
 @socketio.on('connect')
 def handle_connect():
