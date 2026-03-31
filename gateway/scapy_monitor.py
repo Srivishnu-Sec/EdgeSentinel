@@ -11,6 +11,12 @@ sys.path.insert(0, '/home/owner/edgesentinel/forensics')
 import risk_engine as re
 import forensic_chain as fc
 
+try:
+    from ml_monitor import update_traffic
+    ML_AVAILABLE = True
+except Exception:
+    ML_AVAILABLE = False
+
 # ── Configuration ────────────────────────────────────────────────
 PORT_SCAN_THRESHOLD = 5      # unique ports in time window = port scan
 FLOOD_THRESHOLD = 50         # packets per second = flood
@@ -52,6 +58,11 @@ def detect_port_scan(device_id, dst_port):
             port_tracker[device_id] = set()
 
 def detect_flood(device_id):
+    # Feed into ML monitor
+    if ML_AVAILABLE:
+        proto = 6 if TCP in packet else 17 if UDP in packet else 0
+        port = packet[TCP].dport if TCP in packet else packet[UDP].dport if UDP in packet else 0
+        update_traffic(device_id, len(packet), port, proto)
     """Detect if device is flooding the network."""
     now = time.time()
     packet_tracker[device_id].append(now)

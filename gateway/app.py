@@ -1,11 +1,13 @@
 from flask import Flask, jsonify, request
 from datetime import datetime
 from flask_socketio import SocketIO, emit
+from flask import current_app
 from flask_cors import CORS
 import subprocess
 import json
 import sys
 import os
+import paho.mqtt.client as mqtt_client
 
 sys.path.insert(0, '/home/owner/edgesentinel/forensics')
 sys.path.insert(0, '/home/owner/edgesentinel/gateway')
@@ -14,7 +16,8 @@ import risk_engine as re
 import forensic_chain as fc
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'edgesentinel_secret'
+app.config["SECRET_KEY"] = "edgesentinel_secret"
+CORS(app, origins="*")
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -159,18 +162,80 @@ def reset_all():
     print("[RESET] All devices and forensic chain reset.")
     return jsonify({"status": "reset complete"})
 
-@socketio.on('connect')
+@app.after_request
+def add_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+@socketio.on("connect")
 def handle_connect():
     emit('device_update', re.get_all_devices())
     print("[SOCKET] Dashboard connected")
 
 # ── Run ──────────────────────────────────────────────────────────
+def on_mqtt_message(client, userdata, message):
+    import json
+    try:
+        payload = json.loads(message.payload.decode())
+        device_id = payload.get('device_id')
+        temperature = payload.get('temperature')
+        humidity = payload.get('humidity')
+        if device_id and device_id in sensor_data:
+            sensor_data[device_id]['temperature'] = temperature
+            sensor_data[device_id]['humidity'] = humidity
+            sensor_data[device_id]['last_updated'] = datetime.now().isoformat()
+            socketio.emit('sensor_update', sensor_data)
+            print(f"[MQTT] {device_id} -> Temp: {temperature}C | Humidity: {humidity}%")
+    except Exception as e:
+        print(f"[MQTT] Error: {e}")
+
+def start_mqtt_subscriber():
+    import threading
+    def run():
+        def on_connect(client, userdata, flags, reason_code, properties):
+            print(f"[MQTT] Subscriber connected, reason: {reason_code}")
+            client.subscribe("devices/#")
+            print("[MQTT] Subscribed to devices/#")
+
+        def on_message(client, userdata, message):
+            import json
+            try:
+                print(f"[MQTT] Raw message received on {message.topic}")
+                payload = json.loads(message.payload.decode())
+                device_id = payload.get('device_id')
+                temperature = payload.get('temperature')
+                humidity = payload.get('humidity')
+                if device_id and device_id in sensor_data:
+                    sensor_data[device_id]['temperature'] = temperature
+                    sensor_data[device_id]['humidity'] = humidity
+                    sensor_data[device_id]['last_updated'] = datetime.now().isoformat()
+                    print(f"[MQTT] {device_id} -> Temp: {temperature}C | Humidity: {humidity}%")
+            except Exception as e:
+                print(f"[MQTT] Error: {e}")
+
+        import uuid
+        mc = mqtt_client.Client(mqtt_client.CallbackAPIVersion.VERSION2, client_id=f"gateway_sub_{uuid.uuid4().hex[:8]}")
+        mc.username_pw_set("edgesentinel", "pi02w")
+        mc.on_connect = on_connect
+        mc.on_message = on_message
+        mc.connect("192.168.43.209", 1883, 60)
+        mc.loop_forever()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    print("[MQTT] Subscriber started — listening for device data")
 
 if __name__ == '__main__':
     # Register devices on startup
+    start_mqtt_subscriber()
+    from ml_monitor import start_ml_monitor
+    start_ml_monitor()
     re.register_device('pizero', has_hsm=False)
     re.register_device('esp32_1', has_hsm=True)
     re.register_device('esp32_rogue', has_hsm=False)
 
     print("[EDGESENTINEL] Gateway API starting on port 5000...")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+
